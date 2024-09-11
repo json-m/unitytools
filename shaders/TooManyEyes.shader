@@ -8,6 +8,9 @@ Shader "Custom/TooManyEyesShader"
         _Scale ("Scale", Float) = 1.0
         _OffsetX ("Offset X", Float) = 0.0
         _OffsetY ("Offset Y", Float) = 0.0
+        _FishEyeStrength ("Fish Eye Strength", Range(0, 1)) = 0.5
+        _Brightness ("Brightness", Range(0, 2)) = 1.0
+        _EmissionStrength ("Emission Strength", Range(0, 5)) = 1.0
     }
     SubShader
     {
@@ -23,12 +26,16 @@ Shader "Custom/TooManyEyesShader"
         struct Input
         {
             float2 uv_MainTex;
+            float3 viewDir;
         };
 
         sampler2D _MainTex;
         float _Scale;
         float _OffsetX;
         float _OffsetY;
+        float _FishEyeStrength;
+        float _Brightness;
+        float _EmissionStrength;
 
         // Constants and definitions
         #define PI 3.141592654
@@ -305,6 +312,7 @@ Shader "Custom/TooManyEyesShader"
             float l = lerp(0.2, 1.0, dif*sha*ao);
 
             float3 col = l*color + 2.0*spe*sha;
+			col *= _Brightness;
             return gcol+col*ifade;
         }
 
@@ -312,15 +320,20 @@ Shader "Custom/TooManyEyesShader"
         {
             float2 uv = IN.uv_MainTex;
             
+            // Apply fish-eye distortion
+            float2 fishEye = (uv - 0.5) * 2.0;
+            float fishEyeRadius = length(fishEye);
+            float fishEyeFactor = 1.0 - _FishEyeStrength * (1.0 - fishEyeRadius);
+            uv = 0.5 + (fishEye / fishEyeFactor) * 0.5;
+            
             // Apply scale and offset
             uv = (uv - 0.5) / _Scale + float2(_OffsetX, _OffsetY) + 0.5;
             
             // Check if the scaled UV is within the [0,1] range
             if (any(uv < 0.0) || any(uv > 1.0))
             {
-                // Outside the scaled area, set to a background color or transparent
-                o.Albedo = float3(0,0,0); // Or any background color
-                o.Alpha = 0; // Set to 0 for transparency, 1 for opaque
+                o.Albedo = float3(0,0,0);
+                o.Alpha = 0;
                 return;
             }
 
@@ -341,6 +354,7 @@ Shader "Custom/TooManyEyesShader"
             col = postProcess(col, uv);
 
             o.Albedo = col;
+            o.Emission = col * _EmissionStrength;
             o.Alpha = 1.0;
         }
         ENDCG
