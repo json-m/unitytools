@@ -7,22 +7,25 @@ Shader "Custom/HeartsEyeShader"
     {
         _MainTex ("Eye Texture", 2D) = "white" {}
         _IrisSize ("Iris Size", Range(0, 0.5)) = 0.25
-        _IrisEdgeSmoothing ("Iris Edge Smoothing", Range(0, 0.1)) = 0.01
-        _IrisBaseColor ("Iris Base Color", Color) = (0.5, 0.5, 0.5, 1)
+        _IrisEdgeSmoothing ("Iris Edge Smoothing", Range(0, 0.1)) = 0.04
+        _IrisBaseColor ("Iris Base Color", Color) = (0.0, 0.0, 0.0, 1)
         _IrisRedChannel ("Iris Red", Range(0, 1)) = 0.5
         _IrisGreenChannel ("Iris Green", Range(0, 1)) = 0.5
         _IrisBlueChannel ("Iris Blue", Range(0, 1)) = 0.5
         _GrayscaleAmount ("Grayscale Amount", Range(0, 1)) = 0
         _HeartColor ("Heart Color", Color) = (0.957, 0.384, 0.631, 1)
         _HeartEmissionColor ("Heart Emission Color", Color) = (1, 1, 1, 1)
-        _HeartEmissionIntensity ("Heart Emission Intensity", Range(0, 10)) = 1
-        _HeartIntensity ("Heart Intensity", Range(0, 1)) = 0.5
+        _HeartEmissionIntensity ("Heart Emission Intensity", Range(0, 10)) = 3.35
+        _HeartIntensity ("Heart Intensity", Range(0, 1)) = 0.25
         _HeartSpeed ("Heart Animation Speed", Range(0, 10)) = 1
         _GlitterColor ("Glitter Color", Color) = (1, 1, 1, 1)
-        _GlitterDensity ("Glitter Density", Range(10, 100)) = 50
-        _GlitterIntensity ("Glitter Intensity", Range(0, 1)) = 0.5
-        _GlitterSpeed ("Glitter Speed", Range(0, 10)) = 1
-        _ParallaxStrength ("Parallax Strength", Range(0, 0.1)) = 0.02
+        _GlitterDensity ("Glitter Density", Range(10, 500)) = 500
+        _GlitterIntensity ("Glitter Intensity", Range(0, 5)) = 5
+        _GlitterSpeed ("Glitter Speed", Range(0, 20)) = 10
+        _GlitterSize ("Glitter Size", Range(0.001, 1.0)) = 0.2
+        _GlitterSharpness ("Glitter Sharpness", Range(1, 50)) = 20
+		_GlitterContrast ("Glitter Contrast", Range(1, 10)) = 3
+        _ParallaxStrength ("Parallax Strength", Range(0, 0.1)) = 0.075
     }
     SubShader
     {
@@ -50,6 +53,9 @@ Shader "Custom/HeartsEyeShader"
         float _GlitterDensity;
         float _GlitterIntensity;
         float _GlitterSpeed;
+		float _GlitterSize;
+        float _GlitterSharpness;
+        float _GlitterContrast;
         float _ParallaxStrength;
 
         struct Input
@@ -95,15 +101,22 @@ Shader "Custom/HeartsEyeShader"
         float Glitter(float2 uv, float t) {
             float2 id = floor(uv * _GlitterDensity);
             float n = N21(id);
-            float size = frac(n * 345.32);
+            float size = (frac(n * 345.32) * 0.5 + 0.5) * _GlitterSize * 2.0; // Doubled the size impact
             
-            float star = 0.0;
             float2 center = frac(uv * _GlitterDensity) - 0.5;
-            float t2 = frac(t + n);
-            float radius = (0.5 * size * (1.0 - t2) * 0.5 + 0.01) * (sin(t * 2.0 + n) * 0.5 + 1.5);
-            star = smoothstep(0.03 * size, 0.02 * size, length(center) - radius);
+            float t2 = frac(t * _GlitterSpeed + n);
+            float radius = size * (0.8 + 0.2 * sin(t2 * 6.28318));
             
-            return star * step(0.2, n);
+            float dist = length(center);
+            float star = pow(saturate(1.0 - dist / radius), _GlitterSharpness);
+            
+            // Add time-based variation to the glitter
+            star *= 0.5 + 0.5 * sin(t * 15.0 + n * 6.28318);
+            
+            // Apply contrast
+            star = pow(star, _GlitterContrast);
+            
+            return star * step(0.15, n);
         }
 
         fixed3 rgb2gray(fixed3 color) {
@@ -140,7 +153,13 @@ Shader "Custom/HeartsEyeShader"
             heartPattern *= _HeartIntensity * irisMask;
 
             // Add glitter effect
-            float glitter = Glitter(irisUV, _Time.y * _GlitterSpeed) * _GlitterIntensity * irisMask;
+            float glitter = 0;
+            for (int i = 0; i < 3; i++) {
+                float t = _Time.y + float(i) * 1.61803; // Golden ratio for variation
+                float scale = 1.0 + float(i) * 0.5;
+                glitter += Glitter(uv * scale, t) / scale; // Adjust for scale
+            }
+            glitter = saturate(glitter) * _GlitterIntensity * irisMask;
 
             // Create iris base color from sliders
             fixed3 irisBaseColor = fixed3(_IrisRedChannel, _IrisGreenChannel, _IrisBlueChannel);
