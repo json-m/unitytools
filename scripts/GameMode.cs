@@ -1,16 +1,34 @@
+// adds a button in scene view when play mode is enabled
+// click to return to game view with whatever gameobject selected
+// public domain idc
 using UnityEngine;
 using UnityEditor;
 
+[InitializeOnLoad]
 public static class SceneViewButton
 {
-    [InitializeOnLoadMethod]
-    static void RegisterCallback()
+    private static bool wasPlayingLastFrame;
+
+    static SceneViewButton()
     {
         SceneView.duringSceneGui += OnSceneGUI;
+        EditorApplication.update += OnEditorUpdate;
+    }
+
+    static void OnEditorUpdate()
+    {
+        if (wasPlayingLastFrame != EditorApplication.isPlaying)
+        {
+            wasPlayingLastFrame = EditorApplication.isPlaying;
+            SceneView.RepaintAll();
+        }
     }
 
     static void OnSceneGUI(SceneView sceneView)
     {
+        if (!EditorApplication.isPlaying)
+            return;
+
         Handles.BeginGUI();
         
         Rect sceneViewRect = sceneView.position;

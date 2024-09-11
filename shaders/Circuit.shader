@@ -1,4 +1,5 @@
-// converted from https://www.shadertoy.com/view/wtlyR8
+// adapted from https://www.shadertoy.com/view/wtlyR8
+// original design https://openprocessing.org/sketch/912094
 Shader "Custom/circuitShader"
 {
     Properties

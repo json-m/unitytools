@@ -1,3 +1,6 @@
+// automatically selects a gameobject when entering play mode
+// in my case, GestureManager, but you can change to whatever
+// public domain idc
 using UnityEngine;
 using UnityEditor;
 

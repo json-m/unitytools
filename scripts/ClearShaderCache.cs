@@ -1,3 +1,5 @@
+// short helper to delete entire shader cache
+// public domain idc
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
