@@ -16,15 +16,26 @@ public class AutoSelectGestureManager
     {
         if (state == PlayModeStateChange.EnteredPlayMode)
         {
-            GameObject gestureManager = GameObject.Find("GestureManager");
+            GameObject gestureManager = GameObject.Find("GestureManager"); // can be any gameobject
             if (gestureManager != null)
             {
                 Selection.activeGameObject = gestureManager;
+				FocusInspectorWindow(); // can remove or modify below
             }
             else
             {
                 Debug.LogWarning("GestureManager not found in the scene.");
             }
         }
+    }
+	
+	private static void FocusInspectorWindow()
+    {
+        EditorApplication.delayCall += () =>
+        {
+            System.Type inspectorType = typeof(Editor).Assembly.GetType("UnityEditor.InspectorWindow");
+            EditorWindow inspectorWindow = EditorWindow.GetWindow(inspectorType);
+            inspectorWindow.Focus();
+        };
     }
 }
