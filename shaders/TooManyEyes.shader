@@ -8,7 +8,7 @@ Shader "Custom/TooManyEyesShader"
         _Scale ("Scale", Float) = 1.0
         _OffsetX ("Offset X", Float) = 0.0
         _OffsetY ("Offset Y", Float) = 0.0
-        _FishEyeStrength ("Fish Eye Strength", Range(0, 1)) = 0.5
+		_FishEyeStrength ("Fish Eye Strength", Range(-1, 1)) = 0.5
         _Brightness ("Brightness", Range(0, 2)) = 1.0
         _EmissionStrength ("Emission Strength", Range(0, 5)) = 1.0
     }
@@ -265,6 +265,26 @@ Shader "Custom/TooManyEyesShader"
             }
             return clamp(res, minShadow, 1.0);
         }
+		
+		float2 fishEyeDistort(float2 uv, float strength)
+        {
+            float2 fishEye = uv * 2.0 - 1.0;
+            float fishEyeRadius = length(fishEye);
+            
+            float distortionFactor;
+            if (strength >= 0)
+            {
+                // Regular fish-eye (bulge outward)
+                distortionFactor = 1.0 - strength * (1.0 - fishEyeRadius);
+            }
+            else
+            {
+                // Inverted fish-eye (pinch inward)
+                distortionFactor = 1.0 + strength * fishEyeRadius;
+            }
+            
+            return (fishEye / distortionFactor) * 0.5 + 0.5;
+        }
 
         // Rendering function
         float3 render(float3 ro, float3 rd)
@@ -321,10 +341,7 @@ Shader "Custom/TooManyEyesShader"
             float2 uv = IN.uv_MainTex;
             
             // Apply fish-eye distortion
-            float2 fishEye = (uv - 0.5) * 2.0;
-            float fishEyeRadius = length(fishEye);
-            float fishEyeFactor = 1.0 - _FishEyeStrength * (1.0 - fishEyeRadius);
-            uv = 0.5 + (fishEye / fishEyeFactor) * 0.5;
+            uv = fishEyeDistort(uv, _FishEyeStrength);
             
             // Apply scale and offset
             uv = (uv - 0.5) / _Scale + float2(_OffsetX, _OffsetY) + 0.5;
@@ -340,7 +357,7 @@ Shader "Custom/TooManyEyesShader"
             float2 p = (uv * 2 - 1) * float2(RESOLUTION.x / RESOLUTION.y, 1);
 
             float3 ro = 1.75*float3(1.0, 0.5, 0.0);
-            float rt = TAU*TIME/30.0;
+            float rt = TAU*_Time.y/30.0;
             ro.xy = mul(ROT(sin(rt*sqrt(0.5))*0.5+0.0), ro.xy);
             ro.xz = mul(ROT(sin(rt)*1.0-0.75), ro.xz);
             float3 ta = float3(0.0, 0.0, 0.0);
