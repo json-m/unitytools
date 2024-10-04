@@ -1,6 +1,6 @@
 // matrix rain style effect with illumination and depth
 // public domain idc
-Shader "Custom/MatrixRainEffectWithDepth"
+Shader "_aa/MatrixRainEffectWithDepth"
 {
     Properties
     {

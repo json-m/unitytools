@@ -1,7 +1,7 @@
 // floating/flickering emissive hearts with glitter effect (can be disabled) and parallax
 // public domain idc
 // forked from https://www.shadertoy.com/view/cdlcDN
-Shader "Custom/HeartsEyeShader"
+Shader "_aa/HeartsEyeShader"
 {
 Properties
 	{

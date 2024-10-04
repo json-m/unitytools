@@ -1,7 +1,7 @@
 // use a lava texture (noise or something else) with wrapping
 // kinda looks like flowing lava
 // public domain idc
-Shader "Custom/LavaEyeShader"
+Shader "_aa/LavaEyeShader"
 {
     Properties
     {

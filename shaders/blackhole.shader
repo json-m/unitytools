@@ -1,5 +1,5 @@
 // converted poorly from https://www.shadertoy.com/view/lcfyDj
-Shader "Custom/blackholeShader"
+Shader "_aa/blackholeShader"
 {
     Properties
     {

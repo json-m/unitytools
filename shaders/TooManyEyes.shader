@@ -1,6 +1,6 @@
 // poorly adapted from https://www.shadertoy.com/view/Nt2GDd
 // thanks to mrange for an open license and the awesome artwork
-Shader "Custom/TooManyEyesShader"
+Shader "_aa/TooManyEyesShader"
 {
     Properties
     {

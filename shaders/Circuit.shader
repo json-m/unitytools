@@ -1,6 +1,6 @@
 // adapted from https://www.shadertoy.com/view/wtlyR8
 // original design https://openprocessing.org/sketch/912094
-Shader "Custom/circuitShader"
+Shader "_aa/circuitShader"
 {
     Properties
     {

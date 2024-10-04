@@ -1,6 +1,6 @@
 // use with noise texture, gives effect similar to flowing oil
 // public domain idc
-Shader "Custom/FluidEyeShader"
+Shader "_aa/FluidEyeShader"
 {
     Properties
     {
