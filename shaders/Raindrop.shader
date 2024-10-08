@@ -1,5 +1,9 @@
 // inspired by / some stuff for droplet/trail ported from https://www.shadertoy.com/view/ltffzl
-// probably a lot of leftover stuff here to be cleaned up or unified
+// supports uv mapped and non mapped surfaces. some options will only work on uv mapped surfaces
+// probably a lot of leftover stuff here to be cleaned up, unified, or to be improved
+// i know a few things here basically do nothing visually and need some troubleshooting
+// im not good at this so this is what you get
+
 // public domain idc
 Shader "_aa/RaindropShader"
 {
@@ -8,6 +12,7 @@ Shader "_aa/RaindropShader"
         [Header(Main Textures)]
         _MainTex ("Eye Texture", 2D) = "white" {}
         _BumpMap ("Normal Map", 2D) = "bump" {}
+		_MainTexScale ("Main Texture Scale", Float) = 1.0
         
         [Space(10)]
         [Header(Subsurface Scattering)]
@@ -24,7 +29,6 @@ Shader "_aa/RaindropShader"
         [Header(Surface Properties)]
         _BaseEyeSmoothness ("Base Eye Smoothness", Range(0,1)) = 0.5
         _RaindropMetallic ("Raindrop Metallic", Range(0,1)) = 0.015
-        _RaindropSmoothness ("Raindrop Smoothness", Range(0,1)) = 0.666
         
         [Space(10)]
         [Header(Rain Effects)]
@@ -32,7 +36,6 @@ Shader "_aa/RaindropShader"
         _DropSize ("Drop Size", Range(0.5, 2)) = 1
         _Speed ("Animation Speed", Range(0.1, 2)) = 1
         _WetnessAmount ("Wetness Amount", Range(0, 1)) = 0.65
-        _MergeThreshold ("Merge Threshold", Range(0, 1)) = 1
         _Motion ("Droplet Impact Motion", Range(0, 1)) = 0.3
         
         [Space(10)]
@@ -44,7 +47,7 @@ Shader "_aa/RaindropShader"
         [Space(10)]
         [Header(Visual Effects)]
         _DistortionStrength ("Distortion Strength", Range(0, 1)) = 0.5
-        _ReflectionStrength ("Reflection Strength", Range(0,0.015)) = 0.005
+        _ReflectionStrength ("Reflection Strength", Range(0,0.5)) = 0.005
         _EmissionColor ("Emission Color", Color) = (1,1,1,1)
         _EmissionStrength ("Emission Strength", Range(0,1)) = 0
         
@@ -58,11 +61,16 @@ Shader "_aa/RaindropShader"
         _FresnelStrength ("Fresnel Strength", Range(0,5)) = 5.0
         _LightSensitivity ("Light Sensitivity", Range(0,2)) = 1.0
         _BaseAmbientLight ("Base Ambient Light", Range(0, 1)) = 0.1
+		
+		[Space(10)]
+        [Header(Culling)]
+        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull Mode", Float) = 2
     }
     SubShader
     {
         Tags {"RenderType"="Opaque"}
         LOD 200
+        Cull [_Cull]  // This line implements the culling
         CGPROGRAM
         #pragma surface surf AnisotropicSSS fullforwardshadows
         #pragma target 3.0
@@ -71,7 +79,8 @@ Shader "_aa/RaindropShader"
         // Main Textures
         sampler2D _MainTex;
         sampler2D _BumpMap;
-
+        float _MainTexScale;
+		
         // Subsurface Scattering
         float4 _SubsurfaceColor;
         float _SubsurfaceStrength;
@@ -84,14 +93,12 @@ Shader "_aa/RaindropShader"
         // Surface Properties
         float _BaseEyeSmoothness;
         float _RaindropMetallic;
-        float _RaindropSmoothness;
 
         // Rain Effects
         float _RainAmount;
         float _DropSize;
         float _Speed;
         float _WetnessAmount;
-        float _MergeThreshold;
         float _Motion;
 
         // Fog Effects
@@ -278,111 +285,126 @@ Shader "_aa/RaindropShader"
             LightingStandardSpecular_GI(s, data, gi);
         }
 
-        void surf (Input IN, inout SurfaceOutputStandardSpecular o)
-        {
-            float2 uv = IN.uv_MainTex;
-            float t = _Time.y * 0.2 * _Speed;
+		void surf (Input IN, inout SurfaceOutputStandardSpecular o)
+		{
+			// Scale the UV coordinates for the main texture
+			float2 mainTexUV = IN.uv_MainTex * _MainTexScale;
+			
+			float t = _Time.y * 0.2 * _Speed;
 
-            // Calculate drop layers
-            float staticDrops = smoothstep(-0.5, 1.0, _RainAmount) * 2.0;
-            float layer1 = smoothstep(0.25, 0.75, _RainAmount);
-            float layer2 = smoothstep(0.0, 0.5, _RainAmount);
-            
-            // Calculate raindrop effects
-            float2 c = Drops(uv, t, staticDrops, layer1, layer2);
+			// Calculate drop layers
+			float staticDrops = smoothstep(-0.5, 1.0, _RainAmount) * 2.0;
+			float layer1 = smoothstep(0.25, 0.75, _RainAmount);
+			float layer2 = smoothstep(0.0, 0.5, _RainAmount);
+			
+			// Calculate raindrop effects
+			float2 c = Drops(mainTexUV, t, staticDrops, layer1, layer2);
 
-            // Optimization 4: Combine distortion calculations
-            float2 e = float2(0.001, 0.0);
-            float2 n = float2(
-                Drops(uv + e, t, staticDrops, layer1, layer2).x - c.x,
-                Drops(uv + e.yx, t, staticDrops, layer1, layer2).x - c.x
-            ) * _DistortionStrength;
+			// Enhance raindrop mask
+			float raindropMask = saturate(c.x * 3.0); // Amplify the mask
 
-            // Apply distortion to UV
-            float2 distortedUV = uv + n;
+			// Combine distortion calculations
+			float2 e = float2(0.001, 0.0);
+			float2 n = float2(
+				Drops(mainTexUV + e, t, staticDrops, layer1, layer2).x - c.x,
+				Drops(mainTexUV + e.yx, t, staticDrops, layer1, layer2).x - c.x
+			) * _DistortionStrength;
 
-            // Sample textures
-            fixed4 c_albedo = tex2D(_MainTex, distortedUV);
-            o.Normal = UnpackNormal(tex2D(_BumpMap, distortedUV));
+			// Apply distortion to UV
+			float2 distortedUV = mainTexUV + n;
 
-            // Set initial albedo from texture
-            o.Albedo = c_albedo.rgb;
+			// Sample textures
+			fixed4 c_albedo = tex2D(_MainTex, distortedUV);
+			o.Normal = UnpackNormal(tex2D(_BumpMap, IN.uv_BumpMap));
 
-            // Environment-reactive color shifts
-            float3 worldViewDir = normalize(UnityWorldSpaceViewDir(IN.worldPos));
-            float3 worldNormal = WorldNormalVector(IN, o.Normal);
-            float fresnel = pow(1.0 - saturate(dot(worldViewDir, worldNormal)), _FresnelStrength);
-            float3 envReflection = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, reflect(-worldViewDir, worldNormal)).rgb;
-            o.Albedo = lerp(o.Albedo, o.Albedo * envReflection, fresnel * _EnvironmentReactivity * 0.5);
+			// Set initial albedo from texture
+			o.Albedo = c_albedo.rgb;
 
-            // Set surface properties
-            float raindropMask = c.x;
-            o.Specular = lerp(o.Specular, float3(_RaindropMetallic, _RaindropMetallic, _RaindropMetallic), raindropMask);
-            o.Smoothness = lerp(_BaseEyeSmoothness, _RaindropSmoothness, raindropMask);
+			// Environment-reactive color shifts
+			float3 worldViewDir = normalize(UnityWorldSpaceViewDir(IN.worldPos));
+			float3 worldNormal = WorldNormalVector(IN, o.Normal);
+			float fresnel = pow(1.0 - saturate(dot(worldViewDir, worldNormal)), _FresnelStrength);
+			float3 envReflection = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, reflect(-worldViewDir, worldNormal)).rgb;
+			o.Albedo = lerp(o.Albedo, o.Albedo * envReflection, fresnel * _EnvironmentReactivity * 0.5);
 
-            // Setup for anisotropic specular
-            o.Specular = lerp(o.Specular * _AnisotropicStrength * 0.5, o.Specular, raindropMask);
+			// Apply base eye properties
+			o.Specular = float3(0, 0, 0); // Base eye has no specularity
+			o.Smoothness = _BaseEyeSmoothness;
 
-            // Add reflections
-            float3 worldRefl = WorldReflectionVector(IN, o.Normal);
-            float3 reflection = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, worldRefl);
-            reflection = DecodeHDR(float4(reflection, 1), unity_SpecCube0_HDR);
+			// Apply raindrop properties with enhanced effect
+			float3 raindropSpecular = float3(_RaindropMetallic, _RaindropMetallic, _RaindropMetallic) * 2.0; // Amplify metallic effect
+			//float raindropSmoothness = lerp(_RaindropSmoothness, 1.0, _RaindropSmoothness * 0.5); // Enhance smoothness contrast
+			
+			o.Specular = lerp(o.Specular, raindropSpecular, raindropMask);
+			o.Smoothness = lerp(o.Smoothness, 1, raindropMask);
 
-            // Calculate rim lighting
-            float rim = 1.0 - saturate(dot(worldViewDir, o.Normal));
-            float3 rimLight = _RimLightColor.rgb * pow(rim, _RimLightPower) * _RimLightStrength * 0.5;
+			// Ensure anisotropic specular is applied after the basic specular setup
+			o.Specular = lerp(o.Specular, o.Specular * _AnisotropicStrength, raindropMask);
 
-            // Combine reflection, emission, and rim lighting
-            o.Emission = reflection * _ReflectionStrength * raindropMask * 0.5 + 
-                         _EmissionColor.rgb * _EmissionStrength * 0.5 +
-                         rimLight;
+			// Add reflections
+			float3 worldRefl = WorldReflectionVector(IN, o.Normal);
+			float3 reflection = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, worldRefl);
+			reflection = DecodeHDR(float4(reflection, 1), unity_SpecCube0_HDR);
 
-            // Apply ambient occlusion
-            float ao = lerp(1, o.Albedo.r, _AmbientOcclusionStrength);
-            o.Albedo *= ao;
+			// Calculate rim lighting
+			float rim = 1.0 - saturate(dot(worldViewDir, o.Normal));
+			float3 rimLight = _RimLightColor.rgb * pow(rim, _RimLightPower) * _RimLightStrength * 0.5;
 
-            // Apply base ambient light
-            float3 baseAmbient = float3(_BaseAmbientLight, _BaseAmbientLight, _BaseAmbientLight) * 0.5;
-            o.Albedo += baseAmbient;
-            o.Emission += baseAmbient;
+			// Combine reflection, emission, and rim lighting
+			o.Emission = reflection * _ReflectionStrength * raindropMask * 0.5 + 
+						 _EmissionColor.rgb * _EmissionStrength * 0.5 +
+						 rimLight;
 
-            // Calculate fog effect
-            float fogTrail = FogTrail(uv, t);
-            float fogFactor = saturate(_FogAmount);
+			// Apply ambient occlusion
+			float ao = lerp(1, o.Albedo.r, _AmbientOcclusionStrength);
+			o.Albedo *= ao;
 
-            // Apply fog as a subtle additive effect
-            float3 fogColor = float3(1, 1, 1); // White fog
-            float fogIntensity = fogFactor * 0.033;
-            
-            // Clear fog where droplets have passed
-            float clearFactor = 1 - fogTrail * _TrailClearStrength;
-            clearFactor = saturate(clearFactor);
-            
-            fogIntensity *= clearFactor;
+			// Apply base ambient light
+			float3 baseAmbient = float3(_BaseAmbientLight, _BaseAmbientLight, _BaseAmbientLight) * 0.5;
+			o.Albedo += baseAmbient;
+			o.Emission += baseAmbient;
 
-            o.Albedo = lerp(o.Albedo, o.Albedo + fogColor * fogIntensity, fogFactor * 0.5);
-            o.Emission = lerp(o.Emission, o.Emission + fogColor * fogIntensity * 0.25, fogFactor * 0.5);
+			// Calculate fog effect
+			float fogTrail = FogTrail(mainTexUV, t);
+			float fogFactor = saturate(_FogAmount);
 
-            // Subtle smoothness adjustment
-            o.Smoothness = lerp(o.Smoothness, lerp(o.Smoothness, o.Smoothness * 0.95, fogFactor), fogFactor);
+			// Apply fog as a subtle additive effect
+			float3 fogColor = float3(1, 1, 1); // White fog
+			float fogIntensity = fogFactor * 0.033;
+			
+			// Clear fog where droplets have passed
+			float clearFactor = 1 - fogTrail * _TrailClearStrength;
+			clearFactor = saturate(clearFactor);
+			
+			fogIntensity *= clearFactor;
 
-            // Apply wetness
-            o.Albedo = lerp(o.Albedo, o.Albedo * 0.85, _WetnessAmount * raindropMask);
-            o.Smoothness = lerp(o.Smoothness, lerp(o.Smoothness, 1.0, 0.5), _WetnessAmount * raindropMask);
+			o.Albedo = lerp(o.Albedo, o.Albedo + fogColor * fogIntensity, fogFactor * 0.5);
+			o.Emission = lerp(o.Emission, o.Emission + fogColor * fogIntensity * 0.25, fogFactor * 0.5);
 
-            // Ensure we don't exceed 1.0 for albedo and emission
-            o.Albedo = saturate(o.Albedo);
-            o.Emission = saturate(o.Emission);
+			// Subtle smoothness adjustment
+			o.Smoothness = lerp(o.Smoothness, lerp(o.Smoothness, o.Smoothness * 0.95, fogFactor), fogFactor);
 
-            // Apply minimum brightness
-            float finalBrightness = max(max(o.Albedo.r, o.Albedo.g), o.Albedo.b);
-            finalBrightness = max(finalBrightness, max(max(o.Emission.r, o.Emission.g), o.Emission.b));
-            if (finalBrightness < _MinimumBrightness) {
-                float brightnessFactor = _MinimumBrightness / finalBrightness;
-                o.Albedo = saturate(o.Albedo * brightnessFactor);
-                o.Emission *= brightnessFactor;
-            }
-        }
+			// Apply wetness with enhanced effect
+			o.Albedo = lerp(o.Albedo, o.Albedo * 0.7, _WetnessAmount * raindropMask); // Darken wet areas more
+			o.Smoothness = lerp(o.Smoothness, 1.0, _WetnessAmount * raindropMask); // Increase smoothness in wet areas
+
+			// Ensure we don't exceed 1.0 for albedo and emission
+			o.Albedo = saturate(o.Albedo);
+			o.Emission = saturate(o.Emission);
+
+			// Apply minimum brightness
+			float finalBrightness = max(max(o.Albedo.r, o.Albedo.g), o.Albedo.b);
+			finalBrightness = max(finalBrightness, max(max(o.Emission.r, o.Emission.g), o.Emission.b));
+			if (finalBrightness < _MinimumBrightness) {
+				float brightnessFactor = _MinimumBrightness / finalBrightness;
+				o.Albedo = saturate(o.Albedo * brightnessFactor);
+				o.Emission *= brightnessFactor;
+			}
+
+			// Enhanced debug visualization
+			float3 debugColor = float3(raindropMask, o.Smoothness, o.Specular.r);
+			o.Albedo = lerp(o.Albedo, debugColor, 0.3); // Subtle blend for debugging
+		}
         ENDCG
     }
     FallBack "Diffuse"
