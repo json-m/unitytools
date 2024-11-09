@@ -5,15 +5,16 @@ Shader "_aa/UltimateStressTest"
 {
     Properties
     {
-	
-		[Header(Timing Control)]
-        _StartDelay ("Start Delay (seconds)", Range(0, 60)) = 0
         // Base properties
         _MainTex ("Texture", 2D) = "white" {}
         _Color ("Color", Color) = (1,1,1,1)
         _MinDistance ("Minimum Distance", Float) = 0
         _MaxDistance ("Maximum Distance", Float) = 5
         _FadeRange ("Fade Range", Range(0.0, 1.0)) = 0.2
+		
+		// Fuse properties
+		[Header(Timing Control)]
+        _StartDelay ("Start Delay (seconds)", Range(0, 60)) = 0
         
         // Core stress test controls
         [Header(Core Stress Parameters)]
@@ -90,6 +91,8 @@ Shader "_aa/UltimateStressTest"
 				float3 viewDir : TEXCOORD7;
 				float distanceFromCamera : TEXCOORD8;
 			};
+			
+			float _StartDelay;
 
             // Texture declarations
             sampler2D _MainTex, _NoiseTex1, _NoiseTex2, _NoiseTex3, _NoiseTex4;
@@ -106,7 +109,7 @@ Shader "_aa/UltimateStressTest"
 
             // Memory stress buffer
             #define BUFFER_SIZE 256
-			// Replace the static buffer with a function that generates values
+			// Static buffer with a function that generates values
 			float4 getStressBufferValue(uint index)
 			{
 				// Create deterministic but varying values based on index
@@ -266,6 +269,7 @@ Shader "_aa/UltimateStressTest"
                 
                 return 0.5 * log(r) * r / dr;
             }
+			
 			// Derivative stress testing
             float3 derivativeStress(float2 uv, float3 worldPos, float time)
             {
@@ -478,6 +482,24 @@ Shader "_aa/UltimateStressTest"
 			v2f vert (appdata v)
 			{
 				v2f o;
+				
+				if (_Time.y < _StartDelay)
+                {
+                    // Output a clipped vertex
+                    o.vertex = float4(0, 0, 0, 0);
+                    o.uv = float2(0, 0);
+                    o.worldPos = float3(0, 0, 0);
+                    o.normal = float3(0, 0, 0);
+                    o.screenPos = float4(0, 0, 0, 1);
+                    o.tangent = float4(0, 0, 0, 0);
+                    o.binormal = float3(0, 0, 0);
+                    o.color = float4(0, 0, 0, 0);
+                    o.localPos = float4(0, 0, 0, 0);
+                    o.viewDir = float3(0, 0, 0);
+                    o.distanceFromCamera = 0;
+                    return o;
+                }
+
 				float3 worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
 				float distanceFromCamera = distance(_WorldSpaceCameraPos, worldPos);
 				float time = _Time.y;
@@ -528,6 +550,17 @@ Shader "_aa/UltimateStressTest"
 
             fixed4 frag (v2f i) : SV_Target
 			{
+				// Check if we should start the effect based on time
+                float timeSinceStart = _Time.y;
+                float effectStrength = saturate((timeSinceStart - _StartDelay) / 1.0);
+                
+                // Early exit if we haven't reached the delay time
+                if (_Time.y < _StartDelay)
+                {
+                    clip(-1);
+                    return fixed4(0, 0, 0, 0);
+                }
+				
 				// Early distance-based discard
 				if (i.distanceFromCamera > _MaxDistance)
 				{
@@ -676,10 +709,13 @@ Shader "_aa/UltimateStressTest"
                 }
 
                 // Apply distance fade
-				finalColor.rgb *= fade;
-				finalColor.a *= fade;
-				
-				return saturate(finalColor);
+                finalColor.rgb = lerp(
+                    tex2D(_MainTex, i.uv) * _Color.rgb,
+                    finalColor.rgb,
+                    effectStrength
+                );
+                
+                return saturate(finalColor);
             }
             
             ENDCG
