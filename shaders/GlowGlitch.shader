@@ -1,5 +1,5 @@
 // glitchy display style shader with cyberpunk-ish glitch/distortion + crt/vhs effects
-// underlying texture should be uv mapped and black background with white text
+// underlying texture should be uv mapped and black background with white text for best result
 // public domain idc
 Shader "_aa/GlowGlitch"
 {
@@ -11,7 +11,7 @@ Shader "_aa/GlowGlitch"
         
         [Header(Volumetric Glow)]
         _GlowPower ("Glow Power", Range(0.1, 5.0)) = 1.0
-        _CoreIntensity ("Core Light Intensity", Range(1, 10)) = 2.0
+        _CoreIntensity ("Core Light Intensity", Range(1, 5)) = 1.5
         _GlowIntensity ("Glow Intensity", Range(0, 5)) = 1.0
         _GlowFalloff ("Glow Falloff", Range(1, 5)) = 2.0
         _InnerRadius ("Inner Glow Radius", Range(0, 0.5)) = 0.1
@@ -323,7 +323,64 @@ Shader "_aa/GlowGlitch"
             return fadeIn * (1.0 - fadeOut);
         }
 
-        // Get segment coordinates for inversion effect
+        // Calculate glitch displacement
+        float2 calculateGlitchOffset(float2 uv, float time, float glitchAmount)
+        {
+            float2 glitchOffset = 0;
+            if (glitchAmount > 0)
+            {
+                // Create violent horizontal tearing
+                float rapidTime = time * 60.0;
+                float lineShift = floor(uv.y * 50.0); // Create horizontal bands
+                float lineNoise = hash(float2(lineShift, floor(rapidTime * 2.0)), rapidTime);
+                
+                // Extreme horizontal displacement
+                float tearAmount = ((lineNoise * 2.0 - 1.0) * _GlitchStrength * glitchAmount * 50.0) * step(0.5, lineNoise);
+                glitchOffset.x = tearAmount;
+                
+                // Add sudden large horizontal jumps
+                float jumpInterval = floor(rapidTime * 4.0);
+                float jumpNoise = hash(float2(jumpInterval, 0), rapidTime);
+                if (jumpNoise > 0.7) {
+                    glitchOffset.x += (jumpNoise - 0.5) * _GlitchStrength * 100.0;
+                }
+            }
+            return glitchOffset;
+        }
+
+        // Sample texture with combined effects
+        float3 sampleWithEffects(sampler2D tex, float2 uv, float time, float glitchAmount)
+        {
+            float2 wave = float2(
+                sin(uv.y * _WaveFreqY + time * _WaveSpeedY),
+                cos(uv.x * _WaveFreqX + time * _WaveSpeedX)
+            ) * _WaveStrength;
+
+            float3 col = tex2D(tex, uv + wave).rgb;
+            
+            // Apply extreme chromatic aberration during glitch
+            if (glitchAmount > 0) {
+                float rapidTime = time * 60.0;
+                float horizontalShift = _ChromaticStrength * 5.0 * glitchAmount;
+                
+                // Add random jitter to the color channels
+                float jitterAmount = hash(float2(floor(rapidTime * 4.0), 0), rapidTime) * glitchAmount * 0.1;
+                
+                // Sample red and blue channels with extreme separation
+                col.r = tex2D(tex, uv + float2(horizontalShift + jitterAmount, 0) + wave).r;
+                col.b = tex2D(tex, uv + float2(-horizontalShift - jitterAmount, 0) + wave).b;
+                
+                // Add color distortion during peak glitch
+                if (glitchAmount > 0.7) {
+                    col.r = lerp(col.r, col.r * 1.5, glitchAmount);
+                    col.b = lerp(col.b, col.b * 1.5, glitchAmount);
+                }
+            }
+            
+            return col;
+        }
+        
+        // Calculate inversion segments
         float2 getSegmentCoords(float2 uv, float time)
         {
             float2 rotatedUV = rotate2D(uv, _InversionRotation);
@@ -382,130 +439,72 @@ Shader "_aa/GlowGlitch"
             
             return shouldInvert * edgeFalloff * glitchAmount;
         }
-        
-        // Sample texture with combined effects
-        float3 sampleWithEffects(sampler2D tex, float2 uv, float time, float glitchAmount)
-        {
-            float2 wave = float2(
-                sin(uv.y * _WaveFreqY + time * _WaveSpeedY),
-                cos(uv.x * _WaveFreqX + time * _WaveSpeedX)
-            ) * _WaveStrength * glitchAmount * 0.5;
-
-            float chromaticOffset = _ChromaticStrength * glitchAmount * 0.5;
-            float3 baseColor = tex2D(tex, uv + wave).rgb;
-            float3 col = baseColor;
-            
-            // Apply chromatic aberration during glitch
-            if (glitchAmount > 0.5) {
-                col.r = tex2D(tex, uv + float2(chromaticOffset, 0) + wave).r;
-                col.b = tex2D(tex, uv - float2(chromaticOffset, 0) + wave).b;
-            }
-
-            // Add color bleeding effect
-            float2 bleedOffsets[4] = {
-                float2(1, 0),
-                float2(-1, 0),
-                float2(0, 1),
-                float2(0, -1)
-            };
-            
-            float3 bleedColor = float3(0, 0, 0);
-            float totalWeight = 0;
-            
-            for(int i = 0; i < 4; i++)
-            {
-                float2 bleedUV = uv + bleedOffsets[i] * _BleedingRadius;
-                float weight = exp(-length(bleedOffsets[i]) * 2.0);
-                float3 sampleColor = tex2D(tex, bleedUV + wave).rgb;
-                
-                float luminance = dot(sampleColor, float3(0.299, 0.587, 0.114));
-                float saturation = max(sampleColor.r, max(sampleColor.g, sampleColor.b)) - 
-                                 min(sampleColor.r, min(sampleColor.g, sampleColor.b));
-                
-                weight *= (luminance + saturation);
-                bleedColor += sampleColor * weight;
-                totalWeight += weight;
-            }
-            
-            bleedColor = totalWeight > 0 ? bleedColor / totalWeight : col;
-            col = lerp(col, lerp(col, bleedColor, _BleedingIntensity), 1.0 - glitchAmount);
-            
-            return lerp(baseColor, col, glitchAmount);
-        }
 		
 		// Surface shader implementation
-        void surf(Input IN, inout SurfaceOutput o)
-        {
-            float time = _Time.y;
-            float2 baseUV = IN.uv_MainTex; // Original, non-scrolled UV coordinates
-            float2 uv = baseUV; // UV coordinates for scrolling text
-            
-            // Apply scrolling effect if enabled
-            if (_EnableScroll > 0)
-            {
-                float2 scrollOffset = float2(_ScrollSpeedX, _ScrollSpeedY) * time + _ScrollOffset.xy;
-                uv = frac(uv + scrollOffset);
-            }
-            
-            // Calculate base color and glitch effect using scrolled UV
-            float3 baseColor = tex2D(_MainTex, uv).rgb;
-            float glitchAmount = calculateGlitchAmount(time, uv);
-            
-            // Apply glitch displacement
-            float2 glitchOffset = 0;
-            if (glitchAmount > 0.7)
-            {
-                glitchOffset.x = (hash(uv + time, time) - 0.5) * _GlitchStrength * glitchAmount;
-                glitchOffset.y = (hash(uv + time * 1.5, time * 2.0) - 0.5) * _GlitchStrength * glitchAmount * 0.5;
-            }
-            
-            // Apply combined effects and calculate volumetric glow
-            float3 col = sampleWithEffects(_MainTex, uv + glitchOffset, time, glitchAmount);
-            // Use baseUV for the glow effect to keep it stationary
-            float3 volumetricGlow = calculateVolumetricGlow(baseUV + glitchOffset, col, baseUV);
-            
-            // Apply scan lines
-            float scanLine = frac(uv.y * _ScanLineCount - time * _ScanLineSpeed);
-            float scanIntensity = lerp(1.0, abs(sin(scanLine * PI)), _ScanLineIntensity * 0.5);
+		void surf(Input IN, inout SurfaceOutput o)
+		{
+			float time = _Time.y;
+			float2 baseUV = IN.uv_MainTex;
+			float2 uv = baseUV;
+			
+			// Apply scrolling effect if enabled
+			if (_EnableScroll > 0)
+			{
+				float2 scrollOffset = float2(_ScrollSpeedX, _ScrollSpeedY) * time + _ScrollOffset.xy;
+				uv = frac(uv + scrollOffset);
+			}
+			
+			// Calculate base color and effects
+			float3 baseColor = tex2D(_MainTex, uv).rgb;
+			float glitchAmount = calculateGlitchAmount(time, uv);
+			float2 glitchOffset = calculateGlitchOffset(uv, time, glitchAmount);
+			
+			// Apply combined effects and calculate volumetric glow
+			float3 col = sampleWithEffects(_MainTex, uv + glitchOffset, time, glitchAmount);
+			float3 volumetricGlow = calculateVolumetricGlow(baseUV + glitchOffset, col, baseUV);
+			
+			// Apply scan lines
+			float scanLine = frac(uv.y * _ScanLineCount - time * _ScanLineSpeed);
+			float scanIntensity = lerp(1.0, abs(sin(scanLine * PI)), _ScanLineIntensity * 0.5);
 
-            // Apply tape wear effect
-            volumetricGlow = applyTapeWear(volumetricGlow, uv, time);
-            
-            // Apply color degradation effect
-            volumetricGlow = applyColorDegradation(volumetricGlow, uv, time);
-            
-            // Apply color inversion with probability check
-            if (_UseInversion > 0 && glitchAmount > 0)
-            {
-                // Create multiple entropy sources for randomization
-                float timeHash = hash(floor(time * 100).xx, time);
-                float uvHash = hash(uv, time * 0.1);
-                float extraHash = hash(float2(timeHash, uvHash), time * 0.5);
-                
-                // Combine hashes and apply stricter probability
-                float inversionRoll = timeHash * uvHash * extraHash;
-                float adjustedProbability = _InversionProbability * _InversionProbability * _InversionProbability;
-                
-                if (inversionRoll < adjustedProbability)
-                {
-                    float invertAmount = shouldInvertSegment(uv, time, glitchAmount);
-                    if (invertAmount > 0)
-                    {
-                        volumetricGlow = lerp(volumetricGlow, 1 - volumetricGlow, invertAmount);
-                    }
-                }
-            }
-            
-            // Final color composition
-            float3 finalColor = volumetricGlow * _EmissionColor.rgb * scanIntensity;
-            
-            // Add subtle pulsing to the glow
-            float pulse = 1.0 + sin(time * _PulseSpeed) * 0.1;
-            finalColor *= pulse;
-            
-            o.Emission = finalColor;
-            o.Alpha = 1;
-        }
+			// Apply tape wear effect
+			volumetricGlow = applyTapeWear(volumetricGlow, uv, time);
+			
+			// Apply color degradation effect
+			volumetricGlow = applyColorDegradation(volumetricGlow, uv, time);
+			
+			// Apply color inversion with probability check
+			if (_UseInversion > 0 && glitchAmount > 0)
+			{
+				// Create multiple entropy sources for randomization
+				float timeHash = hash(floor(time * 100).xx, time);
+				float uvHash = hash(uv, time * 0.1);
+				float extraHash = hash(float2(timeHash, uvHash), time * 0.5);
+				
+				// Combine hashes and apply stricter probability
+				float inversionRoll = timeHash * uvHash * extraHash;
+				float adjustedProbability = _InversionProbability * _InversionProbability * _InversionProbability;
+				
+				if (inversionRoll < adjustedProbability)
+				{
+					float invertAmount = shouldInvertSegment(uv, time, glitchAmount);
+					if (invertAmount > 0)
+					{
+						volumetricGlow = lerp(volumetricGlow, 1 - volumetricGlow, invertAmount);
+					}
+				}
+			}
+			
+			// Final color composition
+			float3 finalColor = volumetricGlow * _EmissionColor.rgb * scanIntensity;
+			
+			// Add subtle pulsing to the glow
+			float pulse = 1.0 + sin(time * _PulseSpeed) * 0.1;
+			finalColor *= pulse;
+			
+			o.Emission = finalColor;
+			o.Alpha = 1;
+		}
         
         ENDCG
     }
